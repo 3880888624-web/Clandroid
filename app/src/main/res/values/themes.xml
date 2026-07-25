@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Clawd" parent="Theme.AppCompat.Light.NoActionBar" />
+    <style name="Theme.Clawd" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">#0F0F11</item>
+    </style>
 </resources>

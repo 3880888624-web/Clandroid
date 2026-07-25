@@ -1,4 +1,4 @@
-package com.clawd.app
+package com.eingent.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity

@@ -5,15 +5,15 @@ plugins {
 }
 
 android {
-    namespace = "com.clawd.app"
+    namespace = "com.eingent.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.clawd.app"
+        applicationId = "com.eingent.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 1
+        versionName = "0.0.1"
     }
 
     buildFeatures {

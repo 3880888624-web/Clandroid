@@ -26,6 +26,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -100,6 +102,8 @@ fun ApiConfigScreen(onComplete: () -> Unit) {
     val doneOffsetY = remember { Animatable(20f) }
 
     var protocol by remember { mutableStateOf("https") }
+    var apiFormat by remember { mutableStateOf("anthropic") }
+    var showFormatPicker by remember { mutableStateOf(false) }
     var baseUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
@@ -145,7 +149,28 @@ fun ApiConfigScreen(onComplete: () -> Unit) {
             Spacer(Modifier.height(48.dp))
             ProtocolSelector(selected = protocol, onSelect = { protocol = it; errorMsg = null; showDone = false })
             Spacer(Modifier.height(8.dp))
-            ConfigField(value = baseUrl, onValueChange = { baseUrl = it; errorMsg = null; showDone = false }, placeholder = "主机地址（如 api.anthropic.com）")
+            Box {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(Modifier.weight(1f)) {
+                        ConfigField(value = baseUrl, onValueChange = { baseUrl = it; errorMsg = null; showDone = false }, placeholder = "主机地址（如 api.anthropic.com）")
+                    }
+                    FormatToggleButton(expanded = showFormatPicker, onClick = { showFormatPicker = !showFormatPicker })
+                }
+                if (showFormatPicker) {
+                    Popup(
+                        alignment = Alignment.BottomEnd,
+                        offset = IntOffset(0, 8),
+                        onDismissRequest = { showFormatPicker = false },
+                        properties = PopupProperties(focusable = true)
+                    ) {
+                        FormatPickerPanel(selected = apiFormat, onSelect = { apiFormat = it; showFormatPicker = false })
+                    }
+                }
+            }
             Spacer(Modifier.height(12.dp))
             ConfigField(value = apiKey, onValueChange = { apiKey = it; errorMsg = null; showDone = false }, placeholder = "API Key", isPassword = true)
             Spacer(Modifier.height(12.dp))
@@ -167,7 +192,7 @@ fun ApiConfigScreen(onComplete: () -> Unit) {
                         isTesting = true
                         errorMsg = null
                         scope.launch {
-                            val config = ApiConfig("$protocol://${baseUrl.trim()}", apiKey.trim(), model.trim())
+                            val config = ApiConfig("$protocol://${baseUrl.trim()}", apiKey.trim(), model.trim(), apiFormat)
                             ClaudeApi.testConnection(config)
                                 .onSuccess {
                                     ApiConfigStore.save(context, config)
@@ -260,6 +285,60 @@ private fun ProtocolSelector(selected: String, onSelect: (String) -> Unit) {
                     color = if (isSelected) Color.White else Color(0xFF777788),
                     fontSize = 13.sp
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FormatToggleButton(expanded: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .background(
+                Brush.verticalGradient(listOf(BubbleColor.copy(0.93f), BubbleColor.copy(0.85f))),
+                RoundedCornerShape(14.dp)
+            )
+            .glassBorder(14.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(if (expanded) "▼" else "▲", color = Color.White, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun FormatPickerPanel(selected: String, onSelect: (String) -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(160.dp)
+            .background(
+                Brush.verticalGradient(listOf(BubbleColor.copy(0.97f), BubbleColor.copy(0.93f))),
+                RoundedCornerShape(14.dp)
+            )
+            .glassBorder(14.dp)
+            .padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
+    ) {
+        listOf("anthropic" to "Anthropic", "openai" to "OpenAI").forEach { (value, label) ->
+            val isSelected = selected == value
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (isSelected) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                        RoundedCornerShape(10.dp)
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onSelect(value) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Text(label, color = if (isSelected) Color.White else Color(0xFFAAAAAA), fontSize = 14.sp)
             }
         }
     }

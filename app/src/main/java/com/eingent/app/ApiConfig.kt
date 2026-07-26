@@ -14,7 +14,8 @@ import java.util.concurrent.TimeUnit
 data class ApiConfig(
     val baseUrl: String,
     val apiKey: String,
-    val model: String
+    val model: String,
+    val format: String = "anthropic"
 )
 
 object ApiConfigStore {
@@ -22,6 +23,7 @@ object ApiConfigStore {
     private const val KEY_BASE_URL = "base_url"
     private const val KEY_API_KEY = "api_key"
     private const val KEY_MODEL = "model"
+    private const val KEY_FORMAT = "format"
     private const val KEY_COMPLETE = "setup_complete"
 
     fun save(ctx: Context, config: ApiConfig) {
@@ -29,6 +31,7 @@ object ApiConfigStore {
             .putString(KEY_BASE_URL, config.baseUrl)
             .putString(KEY_API_KEY, config.apiKey)
             .putString(KEY_MODEL, config.model)
+            .putString(KEY_FORMAT, config.format)
             .putBoolean(KEY_COMPLETE, true)
             .apply()
     }
@@ -38,7 +41,8 @@ object ApiConfigStore {
         return ApiConfig(
             baseUrl = p.getString(KEY_BASE_URL, "") ?: "",
             apiKey = p.getString(KEY_API_KEY, "") ?: "",
-            model = p.getString(KEY_MODEL, "") ?: ""
+            model = p.getString(KEY_MODEL, "") ?: "",
+            format = p.getString(KEY_FORMAT, "anthropic") ?: "anthropic"
         )
     }
 
@@ -52,10 +56,32 @@ object ClaudeApi {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    private fun endpoint(config: ApiConfig, path: String) =
+        config.baseUrl.trimEnd('/') + path
+
+    private fun buildRequest(config: ApiConfig, url: String, body: String): Request {
+        val builder = Request.Builder()
+            .url(url)
+            .post(body.toRequestBody("application/json".toMediaType()))
+        if (config.format == "openai") {
+            builder.header("Authorization", "Bearer ${config.apiKey}")
+        } else {
+            builder.header("x-api-key", config.apiKey)
+            builder.header("anthropic-version", "2023-06-01")
+        }
+        return builder.build()
+    }
+
+    private fun parseText(json: JSONObject, format: String): String =
+        if (format == "openai")
+            json.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
+        else
+            json.getJSONArray("content").getJSONObject(0).getString("text")
+
     suspend fun testConnection(config: ApiConfig): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val url = config.baseUrl.trimEnd('/') + "/v1/messages"
+                val path = if (config.format == "openai") "/v1/chat/completions" else "/v1/messages"
                 val body = JSONObject().apply {
                     put("model", config.model)
                     put("max_tokens", 5)
@@ -63,16 +89,13 @@ object ClaudeApi {
                         JSONObject().put("role", "user").put("content", "hi")
                     ))
                 }.toString()
-                val req = Request.Builder()
-                    .url(url)
-                    .header("x-api-key", config.apiKey)
-                    .header("anthropic-version", "2023-06-01")
-                    .post(body.toRequestBody("application/json".toMediaType()))
-                    .build()
+                val req = buildRequest(config, endpoint(config, path), body)
                 val resp = client.newCall(req).execute()
                 if (!resp.isSuccessful) {
                     val err = runCatching {
-                        JSONObject(resp.body!!.string()).getJSONObject("error").getString("message")
+                        val j = JSONObject(resp.body!!.string())
+                        j.optJSONObject("error")?.optString("message")
+                            ?: j.optString("message", "HTTP ${resp.code}")
                     }.getOrDefault("HTTP ${resp.code}")
                     error(err)
                 }
@@ -82,7 +105,7 @@ object ClaudeApi {
     suspend fun chat(config: ApiConfig, history: List<Message>): Result<String> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val url = config.baseUrl.trimEnd('/') + "/v1/messages"
+                val path = if (config.format == "openai") "/v1/chat/completions" else "/v1/messages"
                 val msgs = JSONArray().apply {
                     history.forEach { msg ->
                         put(JSONObject()
@@ -95,18 +118,17 @@ object ClaudeApi {
                     put("max_tokens", 1024)
                     put("messages", msgs)
                 }.toString()
-                val req = Request.Builder()
-                    .url(url)
-                    .header("x-api-key", config.apiKey)
-                    .header("anthropic-version", "2023-06-01")
-                    .post(body.toRequestBody("application/json".toMediaType()))
-                    .build()
+                val req = buildRequest(config, endpoint(config, path), body)
                 val resp = client.newCall(req).execute()
                 val json = JSONObject(resp.body!!.string())
                 if (!resp.isSuccessful) {
-                    error(json.getJSONObject("error").getString("message"))
+                    val errMsg = runCatching {
+                        json.optJSONObject("error")?.optString("message")
+                            ?: json.optString("message", "HTTP ${resp.code}")
+                    }.getOrDefault("HTTP ${resp.code}")
+                    error(errMsg)
                 }
-                json.getJSONArray("content").getJSONObject(0).getString("text")
+                parseText(json, config.format)
             }
         }
 }

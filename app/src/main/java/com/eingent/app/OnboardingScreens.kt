@@ -99,6 +99,7 @@ fun ApiConfigScreen(onComplete: () -> Unit) {
     val doneAlpha = remember { Animatable(0f) }
     val doneOffsetY = remember { Animatable(20f) }
 
+    var protocol by remember { mutableStateOf("https") }
     var baseUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
@@ -142,7 +143,9 @@ fun ApiConfigScreen(onComplete: () -> Unit) {
                     .offset { IntOffset(0, headlineOffsetY.value.roundToInt()) }
             )
             Spacer(Modifier.height(48.dp))
-            ConfigField(value = baseUrl, onValueChange = { baseUrl = it; errorMsg = null; showDone = false }, placeholder = "Base URL（如 https://api.anthropic.com）")
+            ProtocolSelector(selected = protocol, onSelect = { protocol = it; errorMsg = null; showDone = false })
+            Spacer(Modifier.height(8.dp))
+            ConfigField(value = baseUrl, onValueChange = { baseUrl = it; errorMsg = null; showDone = false }, placeholder = "主机地址（如 api.anthropic.com）")
             Spacer(Modifier.height(12.dp))
             ConfigField(value = apiKey, onValueChange = { apiKey = it; errorMsg = null; showDone = false }, placeholder = "API Key", isPassword = true)
             Spacer(Modifier.height(12.dp))
@@ -164,7 +167,7 @@ fun ApiConfigScreen(onComplete: () -> Unit) {
                         isTesting = true
                         errorMsg = null
                         scope.launch {
-                            val config = ApiConfig(baseUrl.trim(), apiKey.trim(), model.trim())
+                            val config = ApiConfig("$protocol://${baseUrl.trim()}", apiKey.trim(), model.trim())
                             ClaudeApi.testConnection(config)
                                 .onSuccess {
                                     ApiConfigStore.save(context, config)
@@ -231,6 +234,35 @@ private fun ConfigField(
             }
         }
     )
+}
+
+@Composable
+private fun ProtocolSelector(selected: String, onSelect: (String) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("https", "http").forEach { proto ->
+            val isSelected = selected == proto
+            Box(
+                modifier = Modifier
+                    .background(
+                        if (isSelected) Color.White.copy(alpha = 0.15f) else Color.Transparent,
+                        RoundedCornerShape(8.dp)
+                    )
+                    .glassBorder(8.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onSelect(proto) }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "$proto://",
+                    color = if (isSelected) Color.White else Color(0xFF777788),
+                    fontSize = 13.sp
+                )
+            }
+        }
+    }
 }
 
 @Composable

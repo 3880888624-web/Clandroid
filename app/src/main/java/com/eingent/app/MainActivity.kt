@@ -22,15 +22,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -39,48 +34,40 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val BgColor = Color(0xFF0F0F11)
-private val BubbleColor = Color(0xFF282930)
-
 data class Message(val text: String, val isUser: Boolean)
 
-fun Modifier.glassBorder(cornerRadius: Dp): Modifier = drawBehind {
-    val strokePx = 0.5.dp.toPx()
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(Color(0x55FFFFFF), Color(0x0FFFFFFF))
-        ),
-        topLeft = Offset(strokePx / 2, strokePx / 2),
-        size = Size(size.width - strokePx, size.height - strokePx),
-        cornerRadius = CornerRadius(cornerRadius.toPx()),
-        style = Stroke(strokePx)
-    )
-}
-
-fun Modifier.bottomFade(height: Dp): Modifier = drawWithContent {
-    drawContent()
-    drawRect(
-        brush = Brush.verticalGradient(
-            0f to Color.Transparent,
-            1f to BgColor,
-            startY = size.height - height.toPx(),
-            endY = size.height
-        )
-    )
-}
+private enum class Screen { Welcome, Config, Chat }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { ChatScreen() }
+        setContent { EingentApp() }
+    }
+}
+
+@Composable
+fun EingentApp() {
+    val context = LocalContext.current
+    var screen by remember {
+        mutableStateOf(
+            if (ApiConfigStore.isComplete(context)) Screen.Chat else Screen.Welcome
+        )
+    }
+    when (screen) {
+        Screen.Welcome -> WelcomeScreen(onNext = { screen = Screen.Config })
+        Screen.Config -> ApiConfigScreen(onComplete = { screen = Screen.Chat })
+        Screen.Chat -> ChatScreen()
     }
 }
 
 @Composable
 fun ChatScreen() {
+    val context = LocalContext.current
+    val config = remember { ApiConfigStore.load(context) }
     val messages = remember { mutableStateListOf<Message>() }
     var inputText by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -106,13 +93,23 @@ fun ChatScreen() {
         InputBar(
             text = inputText,
             onTextChange = { inputText = it },
+            enabled = !isLoading,
             onSend = {
                 if (inputText.isNotBlank()) {
                     val userMsg = inputText.trim()
                     messages.add(Message(userMsg, true))
-                    messages.add(Message("我明白了", false))
+                    messages.add(Message("···", false))
+                    val loadingIdx = messages.size - 1
                     inputText = ""
-                    scope.launch { listState.animateScrollToItem(messages.size - 1) }
+                    isLoading = true
+                    scope.launch {
+                        listState.animateScrollToItem(loadingIdx)
+                        ClaudeApi.chat(config, messages.subList(0, loadingIdx).toList())
+                            .onSuccess { messages[loadingIdx] = Message(it, false) }
+                            .onFailure { messages[loadingIdx] = Message("错误: ${it.message}", false) }
+                        isLoading = false
+                        listState.animateScrollToItem(messages.size - 1)
+                    }
                 }
             },
             modifier = Modifier
@@ -151,6 +148,7 @@ fun InputBar(
     text: String,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(24.dp)
@@ -187,6 +185,7 @@ fun InputBar(
         BasicTextField(
             value = text,
             onValueChange = onTextChange,
+            enabled = enabled,
             modifier = Modifier.weight(1f),
             textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
             cursorBrush = SolidColor(Color.White),
@@ -211,7 +210,7 @@ fun InputBar(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    enabled = text.isNotEmpty()
+                    enabled = text.isNotEmpty() && enabled
                 ) { onSend() }
         ) {
             if (alphaAnim.value > 0.6f && heightAnim.value > 24f) {

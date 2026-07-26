@@ -75,8 +75,13 @@ object ClaudeApi {
     private fun parseText(json: JSONObject, format: String): String =
         if (format == "openai")
             json.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
-        else
-            json.getJSONArray("content").getJSONObject(0).getString("text")
+        else {
+            val arr = json.getJSONArray("content")
+            (0 until arr.length())
+                .map { arr.getJSONObject(it) }
+                .first { it.optString("type") == "text" }
+                .getString("text")
+        }
 
     suspend fun testConnection(config: ApiConfig): Result<Unit> =
         withContext(Dispatchers.IO) {
